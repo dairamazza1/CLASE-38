@@ -1,14 +1,18 @@
-const socket = io.connect();
+document.addEventListener("DOMContentLoaded", () => {
+    let inputSave = document.getElementById('saveProduct');
+    inputSave.addEventListener('click', addProduct)
+    getProducts();
+
+    function getProducts() {
+        fetch('/products.data')
+        .then(response =>  response.json() )
+        .then(data =>renderProd(data.products) );
+    }
 
 function renderProd(data) {
-    // document.getElementById('products').innerHTML = html;
     renderTitle(data);
-    //renderPrice(data);
+    renderPrice(data);
     renderThumbnail(data);
-    const price = data.map((elem, index) => {
-      return `<div>${elem.price}</div>`;
-    }).join(" ");
-    document.getElementById("price_set").innerHTML = price;
 }
 
 function renderTitle(data) {
@@ -44,23 +48,25 @@ function renderThumbnail(data) {
 }
 
 
-function addProduct(e) {
-    const obj = {
+function addProduct(event) {
+   // event.preventDefault();
+    let data = {
         name: document.getElementById('name').value,
         price: document.getElementById('price').value,
         thumbnail: document.getElementById('thumbnail').value 
     }
-    // console.log("_________");
-    // console.log(obj);
-    socket.emit('new-products', obj);
     
+    fetch('/products', {
+        method: 'POST',
+        body: JSON.stringify(data),
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    }).then(response => response.json()).then(data => {
+        renderProd(data)
+    })
     document.getElementById('name').value = '';
     document.getElementById('price').value = '';
     document.getElementById('thumbnail').value = '';
-    return false;
-}
-
-socket.on('products', data => {
-    console.log(data);
-    renderProd(data);
+    }
 })

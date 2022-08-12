@@ -1,139 +1,117 @@
-// DAOS
-const { ProductoDaoArchivo } = require('../daos/productos/ProductosDaoArchivo');
-let product = new ProductoDaoArchivo();
+// EN LA RUTA SOLO SE ENCUENTRAN LAS DEFINICIONES Y DEBE COMUNICARSE CON CONTROLADORES
 
-// const { ChatDaoArchivo } = require('../daos/chat/ChatDaoArchivo');
-// let chat = new ChatDaoArchivo();
-const { PORT } = require('../../src/config/globals');
-//INFO
-const { info }= require("../../src/utils/info");
+const { Router } = require('express');
+const productRouter = Router();
+const UserModel = require("../models/usuarios.js");
+const productController = require('../controllers/products')
+//const productMiddleware = require('../middleware/auth')
 
-//FORK
-const { fork } = require("child_process");
+// AUTHORIZATION & AUTHENTICATION
+const passport = require('passport');
+const LocalStrategy = require('passport-local').Strategy;
 
-//LOG4JS
-const log4js = require("log4js");
-const { url } = require('inspector');
+// DEPENDENCIAS
+const {validatePass} = require('../../src/utils/passValidator');
+const {createHash} = require('../../src/utils/hashGenerator')
 
-//ROUTES
-function getRoot(req, res) {
-        res.render('pages/log', {main: true, login: false, signup : false, loginError: false, signupLogout: false , logout : false , error : false});
-        //res.render('pages/log', {main: true});
-}
+productRouter.use(passport.initialize())
+productRouter.use(passport.session())
 
-function getLogin(req, res) {
-    if (req.isAuthenticated()) {
-        res.redirect('products')
-    } else {
-        //res.render('pages/log', {login : true});
-        res.render('pages/log', {main: false, login: true, signup : false, loginError: false, signupLogout: false, logout : false , error : false});
+passport.use('login', new LocalStrategy(
+    (username, password, callback) => {
+        UserModel.findOne({ username: username }, (err, user) => {
+            if (err) {
+                return callback(err)
+            }
+
+            if (!user) {
+                //console.log('No se encontro usuario');
+                return callback(null, false)
+            }
+
+            if(!validatePass(user, password)) {
+                //console.log('Invalid Password');
+                return callback(null, false)
+            }
+
+            return callback(null, user)
+        })
     }
-}
+))
 
-function getSignup(req, res) {
-    // res.render('pages/log', {signup : true});
-    res.render('pages/log', {main: false, login: false, signup : true, loginError: false, signupLogout: false, logout : false , error : false});
 
-}
+passport.use('signup', new LocalStrategy(
+    {passReqToCallback: true}, (req, username, password, callback) => {
+        UserModel.findOne({ username: username }, (err, user) => {
+            if (err) {
+                //console.log('Hay un error al registrarse');
+                //console.log(UserModel);
+                return callback(err)
+            }
+            if (user) {
+                //console.log('El usuario ya existe');
+                return callback(null, false)
+            }
 
-function postLogin (req, res) {
-    if (req.isAuthenticated()) {
-        res.redirect('products')
-    } else {
-        res.redirect('login')
+            console.log(req.body);
+
+            const newUser = {
+                username: username,
+                password: createHash(password)
+            }
+
+            UserModel.create(newUser, (err, userWithId) => {
+                if (err) {
+                    //console.log('Hay un error al registrarse');
+                    return callback(err)
+                }
+
+                //console.log(userWithId);
+                //console.log('Registro de usuario satisfactoria');
+
+                return callback(null, userWithId)
+            })
+        })
     }
-}
-
-function postSignup (req, res) {
-    if (req.isAuthenticated()) {
-        res.redirect('products')
-    } else {
-        res.redirect('login')
-    }
-}
-
-async function getProducts (req, res){
-    if (req.isAuthenticated()) {
-        let user = req.user;
-        const prod = await product.getAll().then( (obj) =>{
-            obj.length > 0 ? res.render( 'pages/index', {listExists: true, listNotExists: false, user: user, isUser : true, info: false}) : res.render('pages/index', {listNotExists: true, listExists: false, user: user, isUser : true, info: false})
-        }) 
-    } else {
-        res.redirect('login')
-    }
-}
-
-function getFaillogin (req, res) {
-    console.log('error en login');
-    //res.render('pages/log', {error: true});
-    res.render('pages/log', {main: false, login: false, signup : false, loginError: true, signupLogout: false, logout : false , error : false});
-}
-
-function getFailsignup (req, res) {
-    console.log('error en signup');
-    //res.render('signup-error', {error: true});
-    res.render('pages/log', {main: false, login: false, signup : false, loginError: false, signupLogout: true, logout : false , error : false});
-}
-
-function getLogout (req, res) {
-    req.logout( (err) => {
-        if (!err) {
-            let user = req.body.name;
-            //res.render('pages/log', { logout : false})
-            res.render('pages/log', {main: false, login: false, signup : false, loginError: false, signupLogout: false, logout : true, name: user , error : false});
-        } 
-    });
-}
-
-function failRoute(req, res){
-    const logger = log4js.getLogger("warn");
-    logger.warn("Log Warn: ", req.url);
-    logger.info("Log Info: ",req.url);
-
-    res.status(404).render('pages/log', {main: false, login: false, signup : false, loginError: false, signupLogout: false, logout : false , error : true});
-}
-
-function getInfo(req, res) {
-    const getObj  = info();
-    const logger = log4js.getLogger("info");
-    logger.info("Log Info: ",req.url);
-
-    console.log(getObj);
-
-    res.render( 'pages/info', getObj )
-}
-function getRandom(req, res) {
-    let num = null;
-    //const qtyAux = 100000000;
-    const qtyAux = 100;
-    req.query.qty == undefined ? num = qtyAux : num = req.query.qty;
-
-    const child = fork("./src/utils/randomsChild");
-    child.send(num);
-    child.on("message", (data) => {
-    try {
-        let tittle = `Se han calculado en total ${num} numeros:`;
-        let result = JSON.parse(data);
-        res.render("pages/info", { info: false, random: true, tittle, result });
-    } catch (error) {
-        console.log("ERROR");
-        console.log(error);
-    }
-    }); 
-}
+))
 
 
-module.exports = {
-    getRoot,
-    getLogin,
-    postLogin,
-    getFaillogin,
-    getLogout,
-    failRoute,
-    getSignup,
-    postSignup,
-    getFailsignup,
-    getProducts,
-    getInfo,
-    getRandom
-}
+passport.serializeUser((user, callback) => {
+    callback(null, user._id)
+})
+
+passport.deserializeUser((id, callback) => {
+    UserModel.findById(id, callback)
+})
+
+
+// HOME
+productRouter.get('/', productController.getRoot);
+
+//  LOGIN
+productRouter.get('/login', productController.getLogin);
+productRouter.post('/login', passport.authenticate('login', { failureRedirect: '/faillogin' }), productController.postLogin);
+productRouter.get('/faillogin', productController.getFaillogin);
+
+//  SIGNUP
+productRouter.get('/signup', productController.getSignup);
+productRouter.post('/signup', passport.authenticate('signup', { failureRedirect: '/failsignup' }), productController.postSignup);
+productRouter.get('/failsignup', productController.getFailsignup);
+
+//  LOGOUT
+productRouter.get('/logout', productController.getLogout);
+
+// PRODUCTS
+productRouter.get('/products', productController.getProducts);
+productRouter.get('/products.data', productController.getProductsData);
+
+// INFO
+productRouter.get("/info", productController.getInfo)
+
+// RAND
+productRouter.get("/randoms", productController.getRandom);
+
+//  FAIL ROUTE
+productRouter.get('*', productController.failRoute);
+
+module.exports = productRouter 
